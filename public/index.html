@@ -99,6 +99,45 @@
         </div>
     </div>
 
+    <!-- Modal Detail Wallet (Pop-up) -->
+    <div id="details-modal" class="modal-overlay">
+        <div class="modal-content">
+            <button id="modal-close-btn" class="modal-close">&times;</button>
+            <h2>Detail Wallet</h2>
+            
+            <div class="detail-section">
+                <h4>🔑 Mnemonic</h4>
+                <p id="detail-mnemonic" class="monospace-text"></p>
+            </div>
+
+            <div class="detail-section">
+                <h4>👤 Public Key</h4>
+                <p id="detail-pubkey" class="monospace-text"></p>
+            </div>
+
+            <hr>
+            <h3>Rincian Aset</h3>
+
+            <div class="asset-grid">
+                <div class="asset-item">
+                    <h4>💰 Saldo Tersedia</h4>
+                    <p id="detail-balance"></p>
+                </div>
+                <div class="asset-item">
+                    <h4>🔐 Total Terkunci</h4>
+                    <p id="detail-locked"></p>
+                </div>
+            </div>
+
+            <div class="detail-section">
+                <h4>🔒 Rincian Koin Terkunci</h4>
+                <div id="detail-claimables-list">
+                    <!-- Daftar koin terkunci akan diisi oleh JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="/socket.io/socket.io.js"></script>
     <script src="app.js"></script>
 </body>
