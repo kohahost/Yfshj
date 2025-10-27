@@ -1,5 +1,3 @@
-// wallet_db.js
-
 const fs = require('fs');
 const DB_FILE = './wallets.json';
 
