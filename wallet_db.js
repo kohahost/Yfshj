@@ -3,7 +3,7 @@ const DB_FILE = './wallets.json';
 
 let wallets = [];
 
-// STATUS: PENDING, SCHEDULED, AWAITING_FUNDING, FUNDING, AWAITING_EXECUTION, EXECUTING, SWEEPING, SUCCESS, FAILED, INVALID, INACTIVE
+// STATUS: PENDING, SCHEDULED, AWAITING_EXECUTION, EXECUTING, SUCCESS, FAILED, INVALID, INACTIVE
 function load() {
     try {
         if (fs.existsSync(DB_FILE)) {
@@ -34,8 +34,7 @@ function getAll() { return wallets; }
 
 function getSummary() {
     const summary = {
-        PENDING: 0, SCHEDULED: 0, AWAITING_FUNDING: 0, FUNDING: 0,
-        AWAITING_EXECUTION: 0, EXECUTING: 0, SWEEPING: 0,
+        PENDING: 0, SCHEDULED: 0, AWAITING_EXECUTION: 0, EXECUTING: 0,
         SUCCESS: 0, FAILED: 0, INVALID: 0, INACTIVE: 0,
         TOTAL: wallets.length
     };
