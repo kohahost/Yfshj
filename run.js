@@ -6,8 +6,8 @@ const walletDB = require('./wallet_db.js');
 let sendNotification = () => {};
 
 // Konfigurasi Jaringan
-const PI_API_SERVERS = ['http://4.194.35.14:31401', 'http://113.161.1.223:31401'];
-const PI_NETWORK_PASSPHRASE = 'Pi Network'; // Ini adalah konstanta yang benar
+const PI_API_SERVERS = ['http://4.194.35.14:31401', 'http://4.194.35.14:31401'];
+const PI_NETWORK_PASSPHRASE = 'Pi Network';
 let serverRotation = 0;
 
 function getPiServer() {
@@ -20,6 +20,7 @@ function getPiServer() {
 let botState = {
     isRunning: false,
     mainInterval: null,
+    maintenanceInterval: null, // Interval baru untuk pemeliharaan
     fundingKeypair: null,
     sponsorPool: [],
 };
@@ -60,94 +61,90 @@ function parsePiError(error) {
 }
 
 // ===================================================================================
-// SIKLUS UTAMA: FUNGSI FUND, EXECUTE, SWEEP (LOGIKA BARU)
+// LOGIKA BARU: PEMELIHARAAN DAN EKSEKUSI
 // ===================================================================================
 
 /**
- * [LANGKAH 1] Mendanai satu sponsor dari Funder.
- * Fungsi ini akan membuat akun sponsor jika belum ada.
+ * Memeriksa dan mengisi ulang satu sponsor jika saldonya di bawah standar.
+ * Ini adalah fungsi inti dari model "Pool Siaga".
  */
-async function fundSponsor(sponsor) {
+async function checkAndFundSponsor(sponsor) {
     const server = getPiServer();
-    const fundingAmount = (currentConfig.fundingAmount || 0.0000401).toFixed(7);
-    const funderAccount = await server.loadAccount(botState.fundingKeypair.publicKey());
-    const baseFee = await server.fetchBaseFee();
-    
-    let operation;
+    const requiredAmount = currentConfig.fundingAmount || 0.0000401;
 
     try {
-        // Cek dulu apakah sponsor sudah aktif
-        await server.loadAccount(sponsor.pubkey);
-        // Jika aktif, kirim payment biasa
-        console.log(`[Funding] Mengirim modal ${fundingAmount} π ke sponsor ${sponsor.pubkey.substring(0, 6)}...`);
-        operation = Operation.payment({
-            destination: sponsor.pubkey,
-            asset: Asset.native(),
-            amount: fundingAmount
-        });
+        const sponsorAccount = await server.loadAccount(sponsor.pubkey);
+        const currentBalance = parseFloat(sponsorAccount.balances.find(b => b.asset_type === 'native')?.balance || '0');
+
+        if (currentBalance < requiredAmount) {
+            const amountToTopUp = (requiredAmount - currentBalance).toFixed(7);
+            console.log(`[Maintenance] Mengisi ulang Sponsor ${sponsor.pubkey.substring(0,6)}... sebesar ${amountToTopUp} π.`);
+            const funderAccount = await server.loadAccount(botState.fundingKeypair.publicKey());
+            const tx = new TransactionBuilder(funderAccount, { fee: (await server.fetchBaseFee()).toString(), networkPassphrase: PI_NETWORK_PASSPHRASE })
+                .addOperation(Operation.payment({ destination: sponsor.pubkey, asset: Asset.native(), amount: amountToTopUp }))
+                .setTimeout(60).build();
+            tx.sign(botState.fundingKeypair);
+            await server.submitTransaction(tx);
+            console.log(`[Maintenance] ✅ Sponsor ${sponsor.pubkey.substring(0,6)}... berhasil diisi ulang.`);
+        }
     } catch (e) {
         if (e.response && e.response.status === 404) {
-            // Jika belum aktif, buat akun baru
-            console.log(`[Funding] Sponsor ${sponsor.pubkey.substring(0, 6)}... belum aktif. Membuat akun dengan modal ${fundingAmount} π...`);
-            operation = Operation.createAccount({
-                destination: sponsor.pubkey,
-                startingBalance: fundingAmount
-            });
+            console.log(`[Maintenance] Sponsor ${sponsor.pubkey.substring(0,6)}... belum aktif. Membuat akun...`);
+            try {
+                const funderAccount = await server.loadAccount(botState.fundingKeypair.publicKey());
+                const tx = new TransactionBuilder(funderAccount, { fee: (await server.fetchBaseFee()).toString(), networkPassphrase: PI_NETWORK_PASSPHRASE })
+                    .addOperation(Operation.createAccount({ destination: sponsor.pubkey, startingBalance: requiredAmount.toFixed(7) }))
+                    .setTimeout(60).build();
+                tx.sign(botState.fundingKeypair);
+                await server.submitTransaction(tx);
+                console.log(`[Maintenance] ✅ Sponsor ${sponsor.pubkey.substring(0,6)}... berhasil dibuat dan didanai.`);
+            } catch (creationError) {
+                console.error(`❌ [Maintenance] GAGAL membuat sponsor ${sponsor.pubkey.substring(0,6)}: ${parsePiError(creationError)}`);
+            }
         } else {
-            // Error lain yang tidak terduga
-            throw new Error(`Gagal memeriksa sponsor: ${parsePiError(e)}`);
+            console.error(`❌ [Maintenance] GAGAL memeriksa sponsor ${sponsor.pubkey.substring(0,6)}: ${parsePiError(e)}`);
         }
     }
-
-    const tx = new TransactionBuilder(funderAccount, { fee: baseFee.toString(), networkPassphrase: PI_NETWORK_PASSPHRASE })
-        .addOperation(operation)
-        .setTimeout(60).build();
-    tx.sign(botState.fundingKeypair);
-    await server.submitTransaction(tx);
-    console.log(`[Funding] ✅ Sponsor ${sponsor.pubkey.substring(0, 6)}... berhasil diberi modal.`);
 }
 
 
 /**
- * [LANGKAH 2] Mengeksekusi transaksi utama: klaim dan kirim.
- * Ini menggunakan saldo sponsor untuk biaya transaksi.
+ * [LANGKAH 1] Eksekusi utama: klaim dan kirim (tanpa funding).
  */
 async function executeTransaction(wallet, sponsor) {
     console.log(`[Executor] ${sponsor.pubkey.substring(0, 6)}... -> ${wallet.pubkey.substring(0, 6)}...`);
     const server = getPiServer();
     const sponsorAccount = await server.loadAccount(sponsor.pubkey);
-    const baseFee = await server.fetchBaseFee();
     const targetKeypair = await getWalletFromMnemonic(wallet.mnemonic);
     const targetAccount = await server.loadAccount(wallet.pubkey);
     
     const claimables = await server.claimableBalances().claimant(wallet.pubkey).limit(200).call();
-    // Filter hanya untuk claimable balance yang sudah bisa di klaim
     const unlockedClaimables = claimables.records.filter(r => !r.claimants[0].predicate.not || new Date(r.claimants[0].predicate.not.abs_before) <= new Date());
     
     const existingBalance = parseFloat(targetAccount.balances.find(b => b.asset_type === 'native')?.balance || '0');
     const totalFromClaims = unlockedClaimables.reduce((sum, r) => sum + parseFloat(r.amount), 0);
-    // Jumlah total yang akan dikirim (saldo ada + hasil klaim) dikurangi cadangan minimal 1 Pi
+    // Jumlah yang akan dikirim = saldo ada + hasil klaim.
+    // Pi Network membutuhkan cadangan 1 Pi di wallet, jadi kita tidak bisa kirim semuanya.
     const amountToSend = existingBalance + totalFromClaims - 1.0; 
 
-    if (amountToSend <= 0) {
-        throw new Error("Tidak ada saldo yang cukup untuk dikirim setelah dikurangi cadangan.");
+    if (amountToSend <= 0.0000001) { // Periksa jika saldo yang bisa dikirim sangat kecil atau negatif
+        throw new Error("Tidak ada saldo yang cukup untuk dikirim (setelah dikurangi 1 Pi cadangan).");
     }
 
-    const txBuilder = new TransactionBuilder(sponsorAccount, { fee: (baseFee * 2).toString(), networkPassphrase: PI_NETWORK_PASSPHRASE }).setTimeout(60);
+    // Perkirakan fee berdasarkan jumlah operasi. 1 fee per operasi.
+    const estimatedFee = (await server.fetchBaseFee()) * (unlockedClaimables.length + 1);
+    const txBuilder = new TransactionBuilder(sponsorAccount, { fee: estimatedFee.toString(), networkPassphrase: PI_NETWORK_PASSPHRASE }).setTimeout(90);
 
-    // Tambahkan operasi claim untuk setiap koin yang bisa di-claim
     unlockedClaimables.forEach(cb => txBuilder.addOperation(Operation.claimClaimableBalance({ balanceId: cb.id, source: wallet.pubkey })));
 
-    // Tambahkan operasi pengiriman seluruh saldo dari wallet target
     txBuilder.addOperation(Operation.payment({
         destination: currentConfig.recipient,
         asset: Asset.native(),
         amount: amountToSend.toFixed(7),
-        source: wallet.pubkey // Penting: sumbernya adalah wallet target
+        source: wallet.pubkey
     }));
 
     const tx = txBuilder.build();
-    // Ditandatangani oleh Sponsor (pembayar fee) dan Target (pemilik operasi)
     tx.sign(sponsor.keypair, targetKeypair);
 
     const res = await server.submitTransaction(tx);
@@ -156,7 +153,7 @@ async function executeTransaction(wallet, sponsor) {
 }
 
 /**
- * [LANGKAH 3] Mengambil kembali semua sisa dana dari sponsor ke Funder.
+ * [LANGKAH 2] Mengambil sisa dana dari sponsor ke Funder.
  */
 async function sweepSponsor(sponsor) {
     try {
@@ -164,20 +161,16 @@ async function sweepSponsor(sponsor) {
         const sponsorAccount = await server.loadAccount(sponsor.pubkey);
         const sponsorBalance = parseFloat(sponsorAccount.balances.find(b => b.asset_type === 'native').balance);
         const baseFee = await server.fetchBaseFee();
-        const amountToSweep = sponsorBalance - (baseFee / 1e7); // Konversi fee dari stroops
+        const amountToSweep = sponsorBalance - (baseFee / 1e7);
 
         if (amountToSweep > 0.0000001) {
             console.log(`[Sweep] Mengembalikan ${amountToSweep.toFixed(7)} π dari Sponsor ${sponsor.pubkey.substring(0, 6)}...`);
             const sweepTx = new TransactionBuilder(sponsorAccount, { fee: baseFee.toString(), networkPassphrase: PI_NETWORK_PASSPHRASE })
-                .addOperation(Operation.payment({
-                    destination: botState.fundingKeypair.publicKey(),
-                    asset: Asset.native(),
-                    amount: amountToSweep.toFixed(7)
-                }))
+                .addOperation(Operation.payment({ destination: botState.fundingKeypair.publicKey(), asset: Asset.native(), amount: amountToSweep.toFixed(7) }))
                 .setTimeout(30).build();
             sweepTx.sign(sponsor.keypair);
             await server.submitTransaction(sweepTx);
-            console.log(`[Sweep] ✅ Pengembalian dana dari Sponsor ${sponsor.pubkey.substring(0, 6)}... berhasil.`);
+            console.log(`[Sweep] ✅ Pengembalian dana dari Sponsor ${sponsor.pubkey.substring(0,6)}... berhasil.`);
         }
     } catch(e) {
         const errorMsg = parsePiError(e);
@@ -187,17 +180,13 @@ async function sweepSponsor(sponsor) {
 }
 
 /**
- * Fungsi utama yang menjalankan seluruh siklus untuk satu wallet.
+ * Fungsi siklus yang disederhanakan: hanya Execute dan Sweep.
  */
 async function executeWalletCycle(wallet, sponsor) {
     let finalStatus = 'FAILED', reason = 'Unknown error';
     walletDB.addOrUpdate({ mnemonic: wallet.mnemonic, status: 'EXECUTING', sponsorPubkey: sponsor.pubkey });
 
     try {
-        // LANGKAH 1: FUND
-        await fundSponsor(sponsor);
-
-        // LANGKAH 2: EXECUTE
         const txHash = await executeTransaction(wallet, sponsor);
         finalStatus = 'SUCCESS';
         reason = txHash;
@@ -206,16 +195,12 @@ async function executeWalletCycle(wallet, sponsor) {
         console.error(`❌ [System] SIKLUS GAGAL untuk ${wallet.pubkey.substring(0,6)}: ${reason}`);
         finalStatus = 'FAILED';
     } finally {
-        // LANGKAH 3: SWEEP (Selalu dijalankan)
         await sweepSponsor(sponsor);
-        
-        // LANGKAH 4: FINALISASI
         walletDB.addOrUpdate({ mnemonic: wallet.mnemonic, status: finalStatus, reason: reason });
         sponsor.isBusy = false;
         console.log(`[System] Sponsor ${sponsor.pubkey.substring(0, 6)}... sekarang tersedia.`);
     }
 }
-
 
 // ===================================================================================
 // KONTROL BOT DAN MANAJEMEN TUGAS
@@ -236,29 +221,37 @@ async function startBot(config) {
             botState.sponsorPool.push({ keypair, pubkey: keypair.publicKey(), isBusy: false });
         }
         console.log(`Sponsor Pool OK: ${botState.sponsorPool.length} sponsor diinisialisasi.`);
+
+        console.log('[Pre-Funding] Memeriksa dan mendanai semua sponsor...');
+        await Promise.all(botState.sponsorPool.map(sponsor => checkAndFundSponsor(sponsor)));
+        console.log('[Pre-Funding] ✅ Proses pemeriksaan dana sponsor selesai.');
+
     } catch (e) {
         console.error(`❌ GAGAL MEMULAI: Masalah Funder/Sponsor - ${e.message}`);
         return false;
     }
     
     botState.isRunning = true;
-    botState.mainInterval = setInterval(mainLoop, 5000); // Loop setiap 5 detik
+    botState.mainInterval = setInterval(mainLoop, 5000);
+    botState.maintenanceInterval = setInterval(() => {
+        console.log('[Maintenance] Menjalankan pemeriksaan dana sponsor berkala...');
+        botState.sponsorPool.filter(s => !s.isBusy).forEach(checkAndFundSponsor);
+    }, 60000); // Setiap 60 detik
+
     console.log("[SYSTEM] Bot berhasil dimulai.");
     return true;
 }
 
 function mainLoop() {
-    runScheduler(); // Cek wallet baru yang siap diproses
-    processWalletQueue(); // Proses antrian wallet
+    runScheduler();
+    processWalletQueue();
 }
 
 function runScheduler() {
     const now = new Date();
     const tenMinutesFromNow = new Date(now.getTime() + 10 * 60 * 1000);
     
-    const walletsToCheck = [...walletDB.getByStatus('SCHEDULED'), ...walletDB.getByStatus('PENDING')];
-    
-    walletsToCheck.forEach(wallet => {
+    [...walletDB.getByStatus('SCHEDULED'), ...walletDB.getByStatus('PENDING')].forEach(wallet => {
         const unlockTime = wallet.unlockTime ? new Date(wallet.unlockTime) : now;
         if (unlockTime <= tenMinutesFromNow) {
             walletDB.addOrUpdate({ mnemonic: wallet.mnemonic, status: 'AWAITING_EXECUTION' });
@@ -281,10 +274,8 @@ function processWalletQueue() {
         const sponsor = availableSponsors[i];
         
         console.log(`[Assigner] Menugaskan Sponsor ${sponsor.pubkey.substring(0,6)}... untuk Target ${wallet.pubkey.substring(0,6)}...`);
-        sponsor.isBusy = true; // Langsung tandai sibuk
+        sponsor.isBusy = true;
         
-        // Jalankan seluruh siklus secara async tanpa menunggu selesai
-        // agar bisa menjalankan beberapa tugas secara paralel
         executeWalletCycle(wallet, sponsor);
     }
 }
@@ -299,32 +290,74 @@ async function forceExecuteWallet(mnemonic) {
     }
     const sponsor = botState.sponsorPool.find(s => !s.isBusy);
     if (!sponsor) {
-        throw new Error("Tidak ada sponsor yang tersedia saat ini. Coba lagi nanti.");
+        throw new Error("Tidak ada sponsor yang tersedia (siaga) saat ini. Coba lagi nanti.");
     }
 
     console.log(`[FORCE EXECUTE] Memulai proses untuk wallet ${wallet.pubkey.substring(0, 6)}... menggunakan sponsor ${sponsor.pubkey.substring(0, 6)}...`);
     
-    sponsor.isBusy = true; // Amankan sponsor
+    sponsor.isBusy = true;
     try {
-        // Langsung jalankan siklus lengkap dan tunggu hasilnya
         await executeWalletCycle(wallet, sponsor);
         return `Proses eksekusi paksa untuk wallet ${wallet.pubkey.substring(0, 6)}... telah selesai.`;
     } catch (error) {
-        const errorMessage = error.message || "Error tidak diketahui saat eksekusi paksa.";
-        console.error(`[FORCE EXECUTE] GAGAL: ${errorMessage}`);
-        // Jika terjadi error tak terduga di sini, pastikan sponsor dilepaskan
         sponsor.isBusy = false; 
-        throw error; // Lemparkan error ke API caller
+        throw error;
     }
 }
 
-// ===================================================================================
-// FUNGSI UTILITAS LAINNYA
-// ===================================================================================
+function stopBot() {
+    if (!botState.isRunning) return false;
+    console.log("Menghentikan semua proses...");
+    botState.isRunning = false;
+    if(botState.mainInterval) clearInterval(botState.mainInterval);
+    if(botState.maintenanceInterval) clearInterval(botState.maintenanceInterval);
+    botState.mainInterval = null;
+    botState.maintenanceInterval = null;
+    return true;
+}
+
+// ... Sisanya (getStatus, getWalletDetails, scheduleNewMnemonics) tetap sama ...
+// Anda bisa copy-paste bagian sisa dari file Anda sebelumnya, karena tidak ada perubahan di sana.
+
+function getStatus() {
+    return {
+        isRunning: botState.isRunning,
+        sponsors: botState.sponsorPool.map(s => ({ pubkey: s.pubkey, isBusy: s.isBusy }))
+    };
+}
+
+async function getWalletDetails(mnemonic) {
+     if (!bip39.validateMnemonic(mnemonic)) { throw new Error("Mnemonic tidak valid."); }
+    const server = getPiServer();
+    try {
+        const keypair = await getWalletFromMnemonic(mnemonic); const pubkey = keypair.publicKey();
+        let account, availableBalance = "0.0000000";
+        try {
+            account = await server.loadAccount(pubkey);
+            availableBalance = account.balances.find(b => b.asset_type === 'native')?.balance || '0';
+        } catch (e) {
+            if (e.response && e.response.status === 404) { availableBalance = "0.0000000 (Belum Aktif)"; } else { throw e; }
+        }
+        const claimablesResponse = await server.claimableBalances().claimant(pubkey).limit(200).call();
+        let totalLocked = 0;
+        const claimablesDetails = claimablesResponse.records.map(record => {
+            const amount = parseFloat(record.amount); totalLocked += amount;
+            let unlockDateWIB = "Segera tersedia";
+            if (record.claimants[0]?.predicate?.not?.abs_before) {
+                const unlockDate = new Date(record.claimants[0].predicate.not.abs_before);
+                const options = { timeZone: 'Asia/Jakarta', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: false };
+                unlockDateWIB = unlockDate.toLocaleString('id-ID', options).replace(/\./g, ':');
+            }
+            return { amount: amount.toFixed(7), unlockDateWIB };
+        });
+        return { mnemonic, pubkey, availableBalance, totalLocked: totalLocked.toFixed(7), claimables: claimablesDetails };
+    } catch (error) {
+        console.error(`Gagal mengambil detail untuk wallet: ${error.message}`);
+        throw new Error(`Gagal terhubung ke jaringan Pi untuk mengambil detail.`);
+    }
+}
 
 async function scheduleNewMnemonics(mnemonics) {
-    // Fungsi ini tidak berubah, jadi saya persingkat agar tidak terlalu panjang.
-    // Pastikan Anda tetap menggunakan versi lengkap dari file asli Anda.
     const stats = { scheduled: 0, pending: 0, invalid: 0, duplicates: 0 };
     for (const mnemonic of mnemonics) {
         if (walletDB.find(mnemonic)) { stats.duplicates++; continue; }
@@ -366,53 +399,6 @@ async function scheduleNewMnemonics(mnemonics) {
     return stats;
 }
 
-function stopBot() {
-    if (!botState.isRunning) return false;
-    console.log("Menghentikan semua proses...");
-    botState.isRunning = false;
-    if(botState.mainInterval) clearInterval(botState.mainInterval);
-    botState.mainInterval = null;
-    return true;
-}
-
-function getStatus() {
-    return {
-        isRunning: botState.isRunning,
-        sponsors: botState.sponsorPool.map(s => ({ pubkey: s.pubkey, isBusy: s.isBusy }))
-    };
-}
-
-async function getWalletDetails(mnemonic) {
-    // Fungsi ini juga tidak berubah.
-     if (!bip39.validateMnemonic(mnemonic)) { throw new Error("Mnemonic tidak valid."); }
-    const server = getPiServer();
-    try {
-        const keypair = await getWalletFromMnemonic(mnemonic); const pubkey = keypair.publicKey();
-        let account, availableBalance = "0.0000000";
-        try {
-            account = await server.loadAccount(pubkey);
-            availableBalance = account.balances.find(b => b.asset_type === 'native')?.balance || '0';
-        } catch (e) {
-            if (e.response && e.response.status === 404) { availableBalance = "0.0000000 (Belum Aktif)"; } else { throw e; }
-        }
-        const claimablesResponse = await server.claimableBalances().claimant(pubkey).limit(200).call();
-        let totalLocked = 0;
-        const claimablesDetails = claimablesResponse.records.map(record => {
-            const amount = parseFloat(record.amount); totalLocked += amount;
-            let unlockDateWIB = "Segera tersedia";
-            if (record.claimants[0]?.predicate?.not?.abs_before) {
-                const unlockDate = new Date(record.claimants[0].predicate.not.abs_before);
-                const options = { timeZone: 'Asia/Jakarta', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: false };
-                unlockDateWIB = unlockDate.toLocaleString('id-ID', options).replace(/\./g, ':');
-            }
-            return { amount: amount.toFixed(7), unlockDateWIB };
-        });
-        return { mnemonic, pubkey, availableBalance, totalLocked: totalLocked.toFixed(7), claimables: claimablesDetails };
-    } catch (error) {
-        console.error(`Gagal mengambil detail untuk wallet: ${error.message}`);
-        throw new Error(`Gagal terhubung ke jaringan Pi untuk mengambil detail.`);
-    }
-}
 
 module.exports = {
     startBot,
