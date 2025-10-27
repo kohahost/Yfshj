@@ -29,7 +29,6 @@ function loadConfig() {
     try {
         if (fs.existsSync(CONFIG_FILE)) {
             const data = fs.readFileSync(CONFIG_FILE);
-            // Default values untuk memastikan tidak ada error jika field baru ditambahkan
             return {
                 recipient: '',
                 fundingMnemonic: '',
@@ -54,7 +53,7 @@ function loadConfig() {
 function saveConfig() {
     try {
         fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
-        piBot.updateConfig(config); // Update config di bot secara live
+        piBot.updateConfig(config);
         console.log('[SYSTEM] Konfigurasi berhasil disimpan.');
     } catch (error) {
         console.error("Gagal menyimpan config:", error);
@@ -79,19 +78,17 @@ setInterval(async () => {
     });
 }, 2000);
 
-
-// ================== API Endpoints ==================
-
+// API Endpoints
 app.post('/api/start', async (req, res) => {
     try {
         const success = await piBot.startBot(config);
         if (success) {
             res.json({ message: 'Bot berhasil dimulai.' });
         } else {
-            res.status(400).json({ message: 'Gagal memulai bot. Cek log di terminal untuk detail.' });
+            res.status(400).json({ message: 'Gagal memulai bot. Cek log untuk detail.' });
         }
     } catch (error) {
-        console.error("Error fatal saat mencoba memulai bot:", error);
+        console.error("Error saat memulai bot:", error);
         res.status(500).json({ message: `Gagal memulai bot: ${error.message}` });
     }
 });
@@ -131,32 +128,25 @@ app.post('/api/save-config', (req, res) => {
     }
     config = { ...config, ...newConfig };
     saveConfig();
-    // **PERBAIKAN:** Pesan yang lebih akurat
-    res.json({ message: 'Konfigurasi berhasil disimpan. Perubahan pada Funder atau Sponsor memerlukan restart bot untuk aktif.' });
+    res.json({ message: 'Konfigurasi berhasil disimpan. Restart bot jika Anda mengubah Funder atau Sponsor.' });
 });
 
 app.get('/api/wallet-details', async (req, res) => {
     const { pubkey } = req.query;
-    if (!pubkey) {
-        return res.status(400).json({ message: "Public key diperlukan." });
-    }
+    if (!pubkey) { return res.status(400).json({ message: "Public key diperlukan." }); }
     try {
         const wallet = walletDB.getAll().find(w => w.pubkey === pubkey);
-        if (!wallet) {
-            return res.status(404).json({ message: "Wallet tidak ditemukan di database." });
-        }
+        if (!wallet) { return res.status(404).json({ message: "Wallet tidak ditemukan di database." }); }
         const details = await piBot.getWalletDetails(wallet.mnemonic);
         res.json(details);
     } catch (error) {
-        res.status(500).json({ message: error.message || "Gagal mengambil detail wallet dari jaringan." });
+        res.status(500).json({ message: error.message || "Gagal mengambil detail wallet." });
     }
 });
 
 app.post('/api/force-execute', async (req, res) => {
     const { mnemonic } = req.body;
-    if (!mnemonic) {
-        return res.status(400).json({ message: 'Mnemonic diperlukan.' });
-    }
+    if (!mnemonic) { return res.status(400).json({ message: 'Mnemonic diperlukan.' }); }
     try {
         const result = await piBot.forceExecuteWallet(mnemonic);
         res.json({ message: result });
