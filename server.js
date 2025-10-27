@@ -102,8 +102,8 @@ app.get('/api/get-config', (req, res) => { res.json(config); });
 
 app.post('/api/save-config', (req, res) => {
     const newConfig = req.body;
-    if (!newConfig.recipient || !newConfig.fundingMnemonic) {
-        return res.status(400).json({ message: 'Recipient dan Funder Mnemonic wajib diisi.' });
+    if (!newConfig.recipient || !newConfig.fundingMnemonic || !newConfig.sponsorMnemonics || newConfig.sponsorMnemonics.length === 0) {
+        return res.status(400).json({ message: 'Recipient, Funder, dan minimal 1 Sponsor wajib diisi.' });
     }
     config = { ...config, ...newConfig };
     saveConfig();
