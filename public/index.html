@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pi Bot Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Pi Scheduler Bot Dashboard</h1>
+            <div id="bot-status-indicator" class="status-indicator-box offline">
+                <span>OFFLINE</span>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <!-- Kolom Kontrol -->
+            <div class="controls-column">
+                <div class="card">
+                    <h2>Kontrol Bot</h2>
+                    <div class="control-buttons">
+                        <button id="startButton" class="btn btn-start">Start Bot</button>
+                        <button id="stopButton" class="btn btn-stop">Stop Bot</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Tambah Wallet Target</h2>
+                    <form id="addMnemonicsForm">
+                        <textarea id="mnemonicsInput" placeholder="Masukkan satu atau lebih frasa, pisahkan dengan baris baru..." rows="5"></textarea>
+                        <button type="submit" class="btn">Jadwalkan Wallet</button>
+                    </form>
+                </div>
+
+                <div class="card">
+                    <h2>Konfigurasi</h2>
+                    <form id="configForm">
+                        <label for="recipientInput">Recipient Address</label>
+                        <input type="text" id="recipientInput" placeholder="G..." required>
+
+                        <label for="funderInput">Funder Mnemonic</label>
+                        <input type="password" id="funderInput" placeholder="24 kata rahasia Funder (Bank)" required>
+
+                        <label for="sponsorsInput">Sponsor Mnemonics (satu per baris)</label>
+                        <textarea id="sponsorsInput" placeholder="24 kata rahasia Sponsor (Kasir)" rows="3" required></textarea>
+                        
+                        <label for="concurrencyInput">Concurrency (Jumlah Sponsor Bekerja)</label>
+                        <input type="number" id="concurrencyInput" value="5" step="1">
+
+                        <button type="submit" class="btn btn-save">Simpan Konfigurasi</button>
+                    </form>
+                </div>
+                 <div class="card">
+                    <h2>Operasi Database</h2>
+                    <button id="clearDbButton" class="btn btn-danger">Hapus Semua Wallet Target</button>
+                </div>
+            </div>
+
+            <!-- Kolom Status & Log -->
+            <div class="status-log-column">
+                <div class="status-grid">
+                    <div class="card status-card"><h3>Total</h3><p id="total-wallets">0</p></div>
+                    <div class="card status-card"><h3>Scheduled</h3><p id="scheduled-wallets">0</p></div>
+                    <div class="card status-card"><h3>Awaiting Execution</h3><p id="awaiting-execution-wallets">0</p></div>
+                    <div class="card status-card"><h3>In Progress</h3><p id="in-progress-wallets">0</p></div>
+                    <div class="card status-card"><h3>Success</h3><p id="success-wallets">0</p></div>
+                    <div class="card status-card"><h3>Failed</h3><p id="failed-wallets">0</p></div>
+                </div>
+                <div class="card" id="sponsor-status-card">
+                    <h2>Status Sponsor Pool</h2>
+                    <div id="sponsor-status-list">
+                        <p>Memuat status...</p>
+                    </div>
+                </div>
+                <div class="card">
+                    <h2>Database Wallet Target</h2>
+                    <input type="text" id="wallet-search" placeholder="Cari berdasarkan status atau public key...">
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Status</th>
+                                    <th>Public Key</th>
+                                    <th>Unlock Time</th>
+                                    <th>Info</th>
+                                </tr>
+                            </thead>
+                            <tbody id="wallet-table-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card">
+                    <h2>Real-time Log</h2>
+                    <div id="log-container"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

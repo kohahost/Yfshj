@@ -1,0 +1,116 @@
+// server.js (Web Interface Version for JIT Fleet)
+
+const http = require('http');
+const path = require('path');
+const { Server: SocketIOServer } = require("socket.io");
+const express = require('express');
+const fs = require('fs');
+
+const piBot = require('./run.js');
+const walletDB = require('./wallet_db.js');
+
+const PORT = process.env.PORT || 3000;
+const CONFIG_FILE = './config.json';
+
+let config = loadConfig();
+
+const app = express();
+const server = http.createServer(app);
+const io = new SocketIOServer(server);
+
+const originalLog = console.log;
+console.log = function (...args) {
+    originalLog.apply(console, args);
+    const logMessage = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)).join(' ');
+    io.emit('log', logMessage);
+};
+
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+function loadConfig() {
+    try {
+        if (fs.existsSync(CONFIG_FILE)) {
+            const data = fs.readFileSync(CONFIG_FILE);
+            return {
+                recipient: '', memo: 'Pi Transfer', fundingMnemonic: '', sponsorMnemonics: [],
+                concurrentWorkers: 5, ...JSON.parse(data)
+            };
+        }
+    } catch (error) { console.error("Gagal memuat config:", error); }
+    return { recipient: '', memo: 'Pi Transfer', fundingMnemonic: '', sponsorMnemonics: [], concurrentWorkers: 5 };
+}
+
+function saveConfig() {
+    try {
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+        piBot.updateConfig(config);
+        console.log('[SYSTEM] Konfigurasi berhasil disimpan.');
+    } catch (error) { console.error("Gagal menyimpan config:", error); }
+}
+
+piBot.setNotifier((message) => {
+    console.log(`[NOTIF] ${message.replace(/[*`[\]()]/g, '')}`);
+});
+piBot.updateConfig(config);
+
+setInterval(async () => {
+    const status = piBot.getStatus();
+    const summary = walletDB.getSummary();
+    
+    io.emit('status_update', {
+        isRunning: status.isRunning,
+        summary,
+        sponsors: status.sponsors || [],
+        wallets: walletDB.getAll()
+    });
+}, 2000);
+
+app.post('/api/start', (req, res) => {
+    if (piBot.startBot(config)) {
+        res.json({ message: 'Bot berhasil dimulai.' });
+    } else {
+        res.status(400).json({ message: 'Bot sudah berjalan atau gagal memulai.' });
+    }
+});
+
+app.post('/api/stop', (req, res) => {
+    if (piBot.stopBot()) {
+        res.json({ message: 'Bot berhasil dihentikan.' });
+    } else {
+        res.status(400).json({ message: 'Bot sudah berhenti.' });
+    }
+});
+
+app.post('/api/add-mnemonics', async (req, res) => {
+    const { mnemonics } = req.body;
+    if (!Array.isArray(mnemonics) || mnemonics.length === 0) {
+        return res.status(400).json({ message: 'Input mnemonics tidak valid.' });
+    }
+    console.log(`[WEB] Menerima ${mnemonics.length} frasa untuk dijadwalkan...`);
+    const results = await piBot.scheduleNewMnemonics(mnemonics);
+    res.json({ message: `Proses penjadwalan selesai. Dijadwalkan: ${results.scheduled}, Pending: ${results.pending}, Invalid: ${results.invalid}, Duplikat: ${results.duplicates}` });
+});
+
+app.post('/api/clear-database', (req, res) => {
+    fs.writeFileSync('./wallets.json', '[]');
+    walletDB.load();
+    res.json({ message: 'Semua data wallet target berhasil dihapus.' });
+});
+
+app.get('/api/get-config', (req, res) => { res.json(config); });
+
+app.post('/api/save-config', (req, res) => {
+    const newConfig = req.body;
+    if (!newConfig.recipient || !newConfig.fundingMnemonic) {
+        return res.status(400).json({ message: 'Recipient dan Funder Mnemonic wajib diisi.' });
+    }
+    config = { ...config, ...newConfig };
+    saveConfig();
+    res.json({ message: 'Konfigurasi berhasil disimpan. Restart bot agar semua perubahan aktif.' });
+});
+
+server.listen(PORT, () => {
+    originalLog(`Dashboard berjalan di http://localhost:${PORT}`);
+    originalLog('Menunggu koneksi dari browser...');
+});

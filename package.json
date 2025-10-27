@@ -1,0 +1,25 @@
+{
+  "name": "pibotwebook",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "ZendsHost",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "axios": "^1.10.0",
+    "bip39": "^3.1.0",
+    "dotenv": "^16.6.1",
+    "ed25519-hd-key": "^1.3.0",
+    "express": "^5.1.0",
+    "node-telegram-bot-api": "^0.66.0",
+    "socket.io": "^4.8.1",
+    "stellar-sdk": "^10.4.1",
+    "undici": "^6.21.3"
+  },
+  "description": ""
+}
