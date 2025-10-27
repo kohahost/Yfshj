@@ -32,8 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('total-wallets').textContent = summary.TOTAL || 0;
         document.getElementById('scheduled-wallets').textContent = (summary.SCHEDULED || 0) + (summary.PENDING || 0);
         document.getElementById('awaiting-execution-wallets').textContent = summary.AWAITING_EXECUTION || 0;
-        const inProgress = (summary.AWAITING_FUNDING || 0) + (summary.FUNDING || 0) + (summary.EXECUTING || 0) + (summary.SWEEPING || 0);
-        document.getElementById('in-progress-wallets').textContent = inProgress;
+        document.getElementById('in-progress-wallets').textContent = summary.EXECUTING || 0;
         document.getElementById('success-wallets').textContent = summary.SUCCESS || 0;
         document.getElementById('failed-wallets').textContent = summary.FAILED || 0;
 
@@ -93,7 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
             fundingMnemonic: document.getElementById('funderInput').value,
             sponsorMnemonics: document.getElementById('sponsorsInput').value.trim().split('\n').filter(Boolean),
             concurrentWorkers: parseInt(document.getElementById('concurrencyInput').value),
-            fundingAmount: parseFloat(document.getElementById('fundingAmountInput').value) // **TAMBAHAN: Kirim nilai funding amount**
+            fundingAmount: parseFloat(document.getElementById('fundingAmountInput').value)
         };
         apiCall('/api/save-config', 'POST', config);
     });
@@ -106,7 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('funderInput').value = config.fundingMnemonic || '';
             document.getElementById('sponsorsInput').value = (config.sponsorMnemonics || []).join('\n');
             document.getElementById('concurrencyInput').value = config.concurrentWorkers || 5;
-            document.getElementById('fundingAmountInput').value = config.fundingAmount || 0.0000401; // **TAMBAHAN: Muat nilai funding amount**
+            document.getElementById('fundingAmountInput').value = config.fundingAmount || 0.0000401;
         } catch (error) { console.error('Failed to load initial config', error); }
     }
     
@@ -119,7 +118,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         walletTableBody.innerHTML = '';
         if (filteredWallets.length === 0) {
-            walletTableBody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Tidak ada data ditemukan.</td></tr>'; // colspan diubah ke 5
+            walletTableBody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Tidak ada data ditemukan.</td></tr>';
             return;
         }
         const rowsHtml = filteredWallets.map(wallet => {
@@ -130,7 +129,6 @@ document.addEventListener('DOMContentLoaded', () => {
             let infoDisplay = wallet.reason || (wallet.sponsorPubkey ? `Sponsor: ...${wallet.sponsorPubkey.slice(-6)}` : '-');
             if (wallet.status === 'SUCCESS') infoDisplay = `Hash: ...${infoDisplay.slice(-6)}`;
             
-            // **TAMBAHAN: Logika untuk tombol "Jalankan"**
             const canRunNow = ['PENDING', 'SCHEDULED', 'FAILED'].includes(wallet.status);
             const actionButton = canRunNow 
                 ? `<button class="btn-run-now" data-mnemonic="${wallet.mnemonic}">Jalankan</button>` 
@@ -149,7 +147,6 @@ document.addEventListener('DOMContentLoaded', () => {
         walletTableBody.innerHTML = rowsHtml;
     }
     
-    // --- Modal Logic ---
     function populateModal(data) {
         document.getElementById('detail-mnemonic').textContent = data.mnemonic;
         document.getElementById('detail-pubkey').textContent = data.pubkey;
@@ -165,7 +162,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             claimablesList.innerHTML = '<p>Tidak ada rincian koin terkunci.</p>';
         }
-        
         modal.style.display = 'flex';
     }
 
@@ -182,23 +178,19 @@ document.addEventListener('DOMContentLoaded', () => {
         modal.style.display = 'none';
     }
 
-    // **PERUBAHAN: Event listener untuk klik pada baris tabel (menangani tombol dan modal)**
     walletTableBody.addEventListener('click', async (e) => {
-        // Cek jika yang diklik adalah tombol "Jalankan"
         if (e.target.classList.contains('btn-run-now')) {
-            e.stopPropagation(); // Hentikan event agar modal detail tidak muncul
+            e.stopPropagation();
             const mnemonic = e.target.dataset.mnemonic;
             if (confirm('Anda yakin ingin menjalankan wallet ini sekarang? Ini akan menggunakan satu slot sponsor.')) {
                 addLog(`[WEB] Memaksa eksekusi untuk wallet...`);
                 e.target.disabled = true;
                 e.target.textContent = 'Running...';
                 await apiCall('/api/force-execute', 'POST', { mnemonic });
-                // Status tombol akan otomatis ter-refresh pada update berikutnya dari server
             }
-            return; // Hentikan eksekusi lebih lanjut
+            return;
         }
         
-        // Logika untuk membuka modal detail (tetap ada jika bukan tombol yang diklik)
         const row = e.target.closest('tr');
         if (!row || !row.dataset.pubkey) return;
 
