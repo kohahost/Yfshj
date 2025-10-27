@@ -1,4 +1,4 @@
-// server.js (Web Interface Version for JIT Fleet)
+// server.js (Web Interface Version for JIT Fleet with Details API)
 
 const http = require('http');
 const path = require('path');
@@ -67,26 +67,18 @@ setInterval(async () => {
 }, 2000);
 
 app.post('/api/start', (req, res) => {
-    if (piBot.startBot(config)) {
-        res.json({ message: 'Bot berhasil dimulai.' });
-    } else {
-        res.status(400).json({ message: 'Bot sudah berjalan atau gagal memulai.' });
-    }
+    if (piBot.startBot(config)) { res.json({ message: 'Bot berhasil dimulai.' }); } 
+    else { res.status(400).json({ message: 'Bot sudah berjalan atau gagal memulai.' }); }
 });
 
 app.post('/api/stop', (req, res) => {
-    if (piBot.stopBot()) {
-        res.json({ message: 'Bot berhasil dihentikan.' });
-    } else {
-        res.status(400).json({ message: 'Bot sudah berhenti.' });
-    }
+    if (piBot.stopBot()) { res.json({ message: 'Bot berhasil dihentikan.' }); } 
+    else { res.status(400).json({ message: 'Bot sudah berhenti.' }); }
 });
 
 app.post('/api/add-mnemonics', async (req, res) => {
     const { mnemonics } = req.body;
-    if (!Array.isArray(mnemonics) || mnemonics.length === 0) {
-        return res.status(400).json({ message: 'Input mnemonics tidak valid.' });
-    }
+    if (!Array.isArray(mnemonics) || mnemonics.length === 0) { return res.status(400).json({ message: 'Input mnemonics tidak valid.' }); }
     console.log(`[WEB] Menerima ${mnemonics.length} frasa untuk dijadwalkan...`);
     const results = await piBot.scheduleNewMnemonics(mnemonics);
     res.json({ message: `Proses penjadwalan selesai. Dijadwalkan: ${results.scheduled}, Pending: ${results.pending}, Invalid: ${results.invalid}, Duplikat: ${results.duplicates}` });
@@ -108,6 +100,19 @@ app.post('/api/save-config', (req, res) => {
     config = { ...config, ...newConfig };
     saveConfig();
     res.json({ message: 'Konfigurasi berhasil disimpan. Restart bot agar semua perubahan aktif.' });
+});
+
+app.get('/api/wallet-details', async (req, res) => {
+    const { pubkey } = req.query;
+    if (!pubkey) { return res.status(400).json({ message: "Public key diperlukan." }); }
+    try {
+        const wallet = walletDB.getAll().find(w => w.pubkey === pubkey);
+        if (!wallet) { return res.status(404).json({ message: "Wallet tidak ditemukan di database." }); }
+        const details = await piBot.getWalletDetails(wallet.mnemonic);
+        res.json(details);
+    } catch (error) {
+        res.status(500).json({ message: error.message || "Gagal mengambil detail wallet dari jaringan." });
+    }
 });
 
 server.listen(PORT, () => {
