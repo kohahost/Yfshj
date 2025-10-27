@@ -32,8 +32,8 @@ function loadConfig() {
             const data = fs.readFileSync(CONFIG_FILE);
             return {
                 recipient: '', memo: 'Pi Transfer', fundingMnemonic: '', sponsorMnemonics: [],
-                concurrentWorkers: 5, 
-                fundingAmount: 0.0000401, // **TAMBAHAN: Nilai default**
+                concurrentWorkers: 5,
+                fundingAmount: 0.0000401,
                 ...JSON.parse(data)
             };
         }
@@ -57,7 +57,7 @@ piBot.updateConfig(config);
 setInterval(async () => {
     const status = piBot.getStatus();
     const summary = walletDB.getSummary();
-    
+
     io.emit('status_update', {
         isRunning: status.isRunning,
         summary,
@@ -66,13 +66,27 @@ setInterval(async () => {
     });
 }, 2000);
 
-app.post('/api/start', (req, res) => {
-    if (piBot.startBot(config)) { res.json({ message: 'Bot berhasil dimulai.' }); } 
-    else { res.status(400).json({ message: 'Bot sudah berjalan atau gagal memulai.' }); }
+// ===================================================================
+// PERBAIKAN UTAMA ADA DI SINI
+// ===================================================================
+app.post('/api/start', async (req, res) => { // -> Tambahkan 'async'
+    try {
+        const success = await piBot.startBot(config); // -> Tambahkan 'await'
+        if (success) {
+            res.json({ message: 'Bot berhasil dimulai.' });
+        } else {
+            // Pesan error spesifik akan dicetak di terminal server
+            res.status(400).json({ message: 'Gagal memulai bot. Cek log di terminal untuk detail.' });
+        }
+    } catch (error) {
+        console.error("Error fatal saat mencoba memulai bot:", error);
+        res.status(500).json({ message: `Gagal memulai bot: ${error.message}` });
+    }
 });
+// ===================================================================
 
 app.post('/api/stop', (req, res) => {
-    if (piBot.stopBot()) { res.json({ message: 'Bot berhasil dihentikan.' }); } 
+    if (piBot.stopBot()) { res.json({ message: 'Bot berhasil dihentikan.' }); }
     else { res.status(400).json({ message: 'Bot sudah berhenti.' }); }
 });
 
@@ -115,7 +129,6 @@ app.get('/api/wallet-details', async (req, res) => {
     }
 });
 
-// **API ENDPOINT BARU UNTUK FITUR "JALANKAN SEKARANG"**
 app.post('/api/force-execute', async (req, res) => {
     const { mnemonic } = req.body;
     if (!mnemonic) {
