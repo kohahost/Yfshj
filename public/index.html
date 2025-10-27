@@ -49,7 +49,6 @@
                         <label for="concurrencyInput">Concurrency (Jumlah Sponsor Bekerja)</label>
                         <input type="number" id="concurrencyInput" value="5" min="1" step="1">
 
-                        <!-- **TAMBAHAN: Input untuk Funding Amount** -->
                         <label for="fundingAmountInput">Funding Amount per Task (π)</label>
                         <input type="number" id="fundingAmountInput" value="0.0000401" step="0.0000001" min="0">
 
@@ -67,7 +66,7 @@
                 <div class="status-grid">
                     <div class="card status-card"><h3>Total</h3><p id="total-wallets">0</p></div>
                     <div class="card status-card"><h3>Scheduled</h3><p id="scheduled-wallets">0</p></div>
-                    <div class="card status-card"><h3>Awaiting Execution</h3><p id="awaiting-execution-wallets">0</p></div>
+                    <div class="card status-card"><h3>Awaiting</h3><p id="awaiting-execution-wallets">0</p></div>
                     <div class="card status-card"><h3>In Progress</h3><p id="in-progress-wallets">0</p></div>
                     <div class="card status-card"><h3>Success</h3><p id="success-wallets">0</p></div>
                     <div class="card status-card"><h3>Failed</h3><p id="failed-wallets">0</p></div>
@@ -89,7 +88,6 @@
                                     <th>Public Key</th>
                                     <th>Unlock Time</th>
                                     <th>Info</th>
-                                    <!-- **TAMBAHAN: Kolom Aksi** -->
                                     <th>Aksi</th>
                                 </tr>
                             </thead>
@@ -115,15 +113,12 @@
                 <h4>🔑 Mnemonic</h4>
                 <p id="detail-mnemonic" class="monospace-text"></p>
             </div>
-
             <div class="detail-section">
                 <h4>👤 Public Key</h4>
                 <p id="detail-pubkey" class="monospace-text"></p>
             </div>
-
             <hr>
             <h3>Rincian Aset</h3>
-
             <div class="asset-grid">
                 <div class="asset-item">
                     <h4>💰 Saldo Tersedia</h4>
@@ -134,12 +129,9 @@
                     <p id="detail-locked"></p>
                 </div>
             </div>
-
             <div class="detail-section">
                 <h4>🔒 Rincian Koin Terkunci</h4>
-                <div id="detail-claimables-list">
-                    <!-- Daftar koin terkunci akan diisi oleh JavaScript -->
-                </div>
+                <div id="detail-claimables-list"></div>
             </div>
         </div>
     </div>
