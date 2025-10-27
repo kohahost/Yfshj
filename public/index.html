@@ -47,7 +47,11 @@
                         <textarea id="sponsorsInput" placeholder="24 kata rahasia Sponsor (Kasir)" rows="3" required></textarea>
                         
                         <label for="concurrencyInput">Concurrency (Jumlah Sponsor Bekerja)</label>
-                        <input type="number" id="concurrencyInput" value="5" step="1">
+                        <input type="number" id="concurrencyInput" value="5" min="1" step="1">
+
+                        <!-- **TAMBAHAN: Input untuk Funding Amount** -->
+                        <label for="fundingAmountInput">Funding Amount per Task (π)</label>
+                        <input type="number" id="fundingAmountInput" value="0.0000401" step="0.0000001" min="0">
 
                         <button type="submit" class="btn btn-save">Simpan Konfigurasi</button>
                     </form>
@@ -85,6 +89,8 @@
                                     <th>Public Key</th>
                                     <th>Unlock Time</th>
                                     <th>Info</th>
+                                    <!-- **TAMBAHAN: Kolom Aksi** -->
+                                    <th>Aksi</th>
                                 </tr>
                             </thead>
                             <tbody id="wallet-table-body"></tbody>
