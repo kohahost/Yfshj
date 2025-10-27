@@ -1,5 +1,3 @@
-// run.js (Just-in-Time Fleet Version with Details Function)
-
 const { Server, Keypair, TransactionBuilder, Operation, Asset, Memo } = require('stellar-sdk');
 const ed25519 = require('ed25519-hd-key');
 const bip39 = require('bip39');
@@ -8,7 +6,7 @@ const walletDB = require('./wallet_db.js');
 let sendNotification = () => {};
 const PI_API_SERVERS = ['http://4.194.35.14:31401', 'http://113.161.1.223:31401'];
 const PI_NETWORK_PASSPHRASE = 'Pi Network';
-const FUNDING_AMOUNT_FOR_TASK = 0.0000401;
+// const FUNDING_AMOUNT_FOR_TASK = 0.0000401; // <-- DIHAPUS, SEKARANG DIAMBIL DARI CONFIG
 
 let serverRotation = 0;
 function getPiServer() {
@@ -87,8 +85,15 @@ async function fundSponsorForTask(wallet, sponsor) {
     try {
         const server = getPiServer();
         const funderAccount = await server.loadAccount(botState.fundingKeypair.publicKey());
+        // **PERUBAHAN DI SINI**
+        const fundingAmount = currentConfig.fundingAmount || 0.0000401; // Ambil dari config, fallback ke default
+
         const tx = new TransactionBuilder(funderAccount, { fee: "100", networkPassphrase: PI_NETWORK_PASSPHRASE })
-            .addOperation(Operation.payment({ destination: sponsor.pubkey, asset: Asset.native(), amount: FUNDING_AMOUNT_FOR_TASK.toFixed(7) }))
+            .addOperation(Operation.payment({ 
+                destination: sponsor.pubkey, 
+                asset: Asset.native(), 
+                amount: fundingAmount.toFixed(7) 
+            }))
             .setTimeout(30).build();
         tx.sign(botState.fundingKeypair);
         await server.submitTransaction(tx);
@@ -239,4 +244,41 @@ async function getWalletDetails(mnemonic) {
     }
 }
 
-module.exports = { startBot, stopBot, getStatus, setNotifier, updateConfig, scheduleNewMnemonics, getWalletDetails };
+// **FUNGSI BARU UNTUK FITUR "JALANKAN SEKARANG"**
+async function forceExecuteWallet(mnemonic) {
+    if (!botState.isRunning) { throw new Error("Bot tidak sedang berjalan. Harap start bot terlebih dahulu."); }
+    
+    const wallet = walletDB.find(mnemonic);
+    if (!wallet) { throw new Error("Wallet dengan mnemonic tersebut tidak ditemukan di database."); }
+
+    const sponsor = botState.sponsorPool.find(s => !s.isBusy);
+    if (!sponsor) { throw new Error("Tidak ada sponsor yang tersedia saat ini. Coba lagi nanti."); }
+
+    console.log(`[FORCE EXECUTE] Memulai proses untuk wallet ${wallet.pubkey.substring(0, 6)}... menggunakan sponsor ${sponsor.pubkey.substring(0, 6)}...`);
+    
+    sponsor.isBusy = true; // Kunci sponsor agar tidak dipakai oleh main loop
+    
+    try {
+        walletDB.addOrUpdate({ mnemonic: wallet.mnemonic, status: 'FUNDING', sponsorPubkey: sponsor.pubkey });
+        await fundSponsorForTask(wallet, sponsor);
+        
+        const updatedWallet = walletDB.find(mnemonic);
+        if (updatedWallet.status !== 'AWAITING_EXECUTION') {
+            throw new Error(`Pendanaan gagal. Status saat ini: ${updatedWallet.status}. Alasan: ${updatedWallet.reason}`);
+        }
+        
+        console.log(`[FORCE EXECUTE] Pendanaan berhasil, melanjutkan ke eksekusi...`);
+        await executeAndSweepTransaction(updatedWallet, sponsor);
+        
+        return `Proses eksekusi paksa untuk wallet ${wallet.pubkey.substring(0, 6)}... telah selesai.`;
+        
+    } catch (error) {
+        console.error(`[FORCE EXECUTE] GAGAL: ${error.message}`);
+        walletDB.addOrUpdate({ mnemonic: wallet.mnemonic, status: 'FAILED', reason: `Force Execute Error: ${error.message}` });
+        sponsor.isBusy = false; // Pastikan sponsor dibebaskan jika terjadi error
+        throw error; 
+    }
+}
+
+
+module.exports = { startBot, stopBot, getStatus, setNotifier, updateConfig, scheduleNewMnemonics, getWalletDetails, forceExecuteWallet };
