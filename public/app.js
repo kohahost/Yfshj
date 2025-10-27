@@ -14,6 +14,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const configForm = document.getElementById('configForm');
     const walletTableBody = document.getElementById('wallet-table-body');
     const walletSearchInput = document.getElementById('wallet-search');
+    const modal = document.getElementById('details-modal');
+    const modalCloseBtn = document.getElementById('modal-close-btn');
 
     let currentWallets = [];
 
@@ -129,7 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (wallet.status === 'SUCCESS') infoDisplay = `Hash: ...${infoDisplay.slice(-6)}`;
             
             return `
-                <tr>
+                <tr data-pubkey="${wallet.pubkey}">
                     <td class="status-cell ${statusClass}">${wallet.status || 'N/A'}</td>
                     <td class="pubkey-cell">${pubkeyDisplay}</td>
                     <td>${unlockTimeDisplay}</td>
@@ -140,6 +142,61 @@ document.addEventListener('DOMContentLoaded', () => {
         walletTableBody.innerHTML = rowsHtml;
     }
     
+    // --- Modal Logic ---
+    function populateModal(data) {
+        document.getElementById('detail-mnemonic').textContent = data.mnemonic;
+        document.getElementById('detail-pubkey').textContent = data.pubkey;
+        document.getElementById('detail-balance').textContent = `${data.availableBalance} π`;
+        document.getElementById('detail-locked').textContent = `${data.totalLocked} π`;
+
+        const claimablesList = document.getElementById('detail-claimables-list');
+        claimablesList.innerHTML = ''; // Kosongkan daftar
+        if (data.claimables && data.claimables.length > 0) {
+            data.claimables.forEach(item => {
+                claimablesList.innerHTML += `<p><b>${item.amount} π</b> (Buka Kunci: ${item.unlockDateWIB})</p>`;
+            });
+        } else {
+            claimablesList.innerHTML = '<p>Tidak ada rincian koin terkunci.</p>';
+        }
+        
+        modal.style.display = 'flex'; // Tampilkan modal
+    }
+
+    function showLoadingInModal() {
+        document.getElementById('detail-mnemonic').textContent = 'Memuat...';
+        document.getElementById('detail-pubkey').textContent = 'Memuat...';
+        document.getElementById('detail-balance').textContent = '...';
+        document.getElementById('detail-locked').textContent = '...';
+        document.getElementById('detail-claimables-list').innerHTML = '<p>Memuat rincian...</p>';
+        modal.style.display = 'flex';
+    }
+
+    function closeModal() {
+        modal.style.display = 'none';
+    }
+
+    // Event listener untuk klik pada baris tabel
+    walletTableBody.addEventListener('click', async (e) => {
+        const row = e.target.closest('tr');
+        if (!row || !row.dataset.pubkey) return;
+
+        const pubkey = row.dataset.pubkey;
+        showLoadingInModal();
+
+        try {
+            const response = await fetch(`/api/wallet-details?pubkey=${pubkey}`);
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.message);
+            populateModal(data);
+        } catch (error) {
+            alert(`Gagal memuat detail: ${error.message}`);
+            closeModal();
+        }
+    });
+    
+    modalCloseBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
     walletSearchInput.addEventListener('input', renderWalletTable);
     loadInitialConfig();
 });
