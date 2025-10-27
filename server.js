@@ -1,5 +1,3 @@
-// server.js (Web Interface Version for JIT Fleet with Details API)
-
 const http = require('http');
 const path = require('path');
 const { Server: SocketIOServer } = require("socket.io");
@@ -34,11 +32,13 @@ function loadConfig() {
             const data = fs.readFileSync(CONFIG_FILE);
             return {
                 recipient: '', memo: 'Pi Transfer', fundingMnemonic: '', sponsorMnemonics: [],
-                concurrentWorkers: 5, ...JSON.parse(data)
+                concurrentWorkers: 5, 
+                fundingAmount: 0.0000401, // **TAMBAHAN: Nilai default**
+                ...JSON.parse(data)
             };
         }
     } catch (error) { console.error("Gagal memuat config:", error); }
-    return { recipient: '', memo: 'Pi Transfer', fundingMnemonic: '', sponsorMnemonics: [], concurrentWorkers: 5 };
+    return { recipient: '', memo: 'Pi Transfer', fundingMnemonic: '', sponsorMnemonics: [], concurrentWorkers: 5, fundingAmount: 0.0000401 };
 }
 
 function saveConfig() {
@@ -112,6 +112,20 @@ app.get('/api/wallet-details', async (req, res) => {
         res.json(details);
     } catch (error) {
         res.status(500).json({ message: error.message || "Gagal mengambil detail wallet dari jaringan." });
+    }
+});
+
+// **API ENDPOINT BARU UNTUK FITUR "JALANKAN SEKARANG"**
+app.post('/api/force-execute', async (req, res) => {
+    const { mnemonic } = req.body;
+    if (!mnemonic) {
+        return res.status(400).json({ message: 'Mnemonic diperlukan.' });
+    }
+    try {
+        const result = await piBot.forceExecuteWallet(mnemonic);
+        res.json({ message: result });
+    } catch (error) {
+        res.status(500).json({ message: error.message || 'Gagal menjalankan tugas.' });
     }
 });
 
