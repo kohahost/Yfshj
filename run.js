@@ -236,7 +236,7 @@ async function startBot(config) {
     botState.maintenanceInterval = setInterval(() => {
         console.log('[Maintenance] Menjalankan pemeriksaan dana sponsor berkala...');
         botState.sponsorPool.filter(s => !s.isBusy).forEach(checkAndFundSponsor);
-    }, 60000); // Setiap 60 detik
+    }, 1000); // Setiap 60 detik
 
     console.log("[SYSTEM] Bot berhasil dimulai.");
     return true;
